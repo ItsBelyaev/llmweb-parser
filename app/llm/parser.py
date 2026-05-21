@@ -22,6 +22,7 @@ import re
 from typing import Dict, Optional
 
 from app.prompts.templates import (
+    INTERACTIVE_ELEMENT_TEMPLATE,
     PRODUCT_EXTRACTION_TEMPLATE,
     SELECTORS_GENERATION_TEMPLATE,
 )
@@ -204,6 +205,7 @@ class LLMParser:
         self._llm = None
         self._chain = None
         self._selector_chain = None
+        self._interactive_chain = None
         self._initialized = False
 
     # ------------------------------------------------------------------ #
@@ -221,6 +223,8 @@ class LLMParser:
             self._chain = PRODUCT_EXTRACTION_TEMPLATE | self._llm
         if getattr(self, "_selector_chain", None) is None and self._llm is not None:
             self._selector_chain = SELECTORS_GENERATION_TEMPLATE | self._llm
+        if getattr(self, "_interactive_chain", None) is None and self._llm is not None:
+            self._interactive_chain = INTERACTIVE_ELEMENT_TEMPLATE | self._llm
 
     def is_available(self) -> bool:
         """Доступен ли хотя бы один способ обратиться к LLM."""
@@ -302,6 +306,57 @@ class LLMParser:
                 out[k] = None
         out["_raw"] = raw_text
         return out
+
+    # ------------------------------------------------------------------ #
+    # Поиск интерактивного элемента (LLM-fallback)                       #
+    # ------------------------------------------------------------------ #
+    async def find_interactive_element(
+        self, html: str, intent: str = "add_to_cart"
+    ) -> Dict:
+        """Просит LLM найти CSS-селектор для кнопки нужного намерения.
+
+        Используется как fallback, когда эвристический скоринг
+        (``element_finder.find_best``) не уверен.
+
+        Возвращает словарь:
+            {"selector": str | None,
+             "confidence": int (0-100),
+             "reasoning": str,
+             "_raw": str}
+        """
+        self._ensure_init()
+        logger.info("🎯 LLM-поиск элемента (intent=%s, html_len=%d)", intent, len(html))
+
+        raw_text = await self._call_llm(
+            chain=self._interactive_chain,
+            template=INTERACTIVE_ELEMENT_TEMPLATE,
+            vars={"intent": intent, "html": html},
+        )
+        if raw_text is None:
+            return {"selector": None, "confidence": 0, "reasoning": "LLM недоступен", "_raw": None}
+
+        data = _extract_json(raw_text)
+        if not isinstance(data, dict):
+            return {
+                "selector": None,
+                "confidence": 0,
+                "reasoning": f"невалидный ответ LLM: {raw_text[:120]}",
+                "_raw": raw_text,
+            }
+
+        sel = data.get("selector")
+        if isinstance(sel, str):
+            sel = sel.strip() or None
+        try:
+            conf = int(data.get("confidence", 0))
+        except (TypeError, ValueError):
+            conf = 0
+        return {
+            "selector": sel,
+            "confidence": conf,
+            "reasoning": str(data.get("reasoning") or "")[:200],
+            "_raw": raw_text,
+        }
 
     # ------------------------------------------------------------------ #
     # Общий вызов LLM с fallback                                          #

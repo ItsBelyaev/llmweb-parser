@@ -291,3 +291,78 @@ class DomainMarkupList(BaseModel):
     domains: List[DomainMarkup]
     total: int
 
+
+# ─── Интерактивные действия (модернизация ТЗ май 2026) ──────────────────────
+
+
+class InteractRequest(BaseModel):
+    """Запрос на интерактивное действие со страницей."""
+
+    url: str
+    action: str  # add_to_cart | buy_now | click_text | custom_selector | open_product
+    selector: Optional[str] = None
+    text_hint: Optional[str] = None
+    intent: Optional[str] = None
+    use_llm_fallback: bool = True
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("URL не может быть пустым")
+        if not re.match(r"^https?://", v):
+            raise ValueError("URL должен начинаться с http:// или https://")
+        if len(v) > 2048:
+            raise ValueError("URL слишком длинный")
+        return v
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        v = v.strip().lower()
+        allowed = {
+            "add_to_cart",
+            "buy_now",
+            "click_text",
+            "custom_selector",
+            "open_product",
+        }
+        if v not in allowed:
+            raise ValueError(
+                f"action должен быть одним из {sorted(allowed)}"
+            )
+        return v
+
+
+class InteractionLogStep(BaseModel):
+    """Один шаг технического лога действия."""
+
+    step: str
+    detail: str
+    timestamp_ms: int
+
+
+class InteractResponse(BaseModel):
+    """Ответ после выполнения интерактивного действия."""
+
+    id: int
+    status: str  # success | error | not_found
+    url: str
+    action: str
+    selector_used: Optional[str] = None
+    selector_source: Optional[str] = None  # heuristic | llm | text-match | user
+    selector_confidence: Optional[float] = None
+    element_text: Optional[str] = None
+    page_title_before: Optional[str] = None
+    page_title_after: Optional[str] = None
+    error: Optional[str] = None
+    duration_ms: int = 0
+    log: List[InteractionLogStep] = Field(default_factory=list)
+    timestamp: datetime
+
+
+class InteractResponseList(BaseModel):
+    interactions: List[InteractResponse]
+    total: int
+

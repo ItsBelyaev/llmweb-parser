@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Кофемашина Bosch TKA8633 — Sample Shop</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .product { max-width: 800px; }
+        .price { font-size: 24px; color: #2a9d8f; font-weight: bold; }
+        .btn { padding: 12px 24px; font-size: 16px; border: none; border-radius: 6px; cursor: pointer; margin: 5px; }
+        .btn-primary { background: #e63946; color: white; }
+        .btn-secondary { background: #f1f1f1; color: #333; }
+        .wishlist-btn { background: white; border: 1px solid #ccc; }
+        .cart-counter { display: inline-block; background: #2a9d8f; color: white; padding: 2px 8px; border-radius: 10px; }
+    </style>
+</head>
+<body>
+<nav class="breadcrumbs">
+    <a href="/">Главная</a> /
+    <a href="/cat/kitchen">Кухня</a> /
+    <a href="/cat/coffee">Кофемашины</a>
+</nav>
+
+<header style="display: flex; justify-content: space-between; padding: 20px 0;">
+    <h2>Sample Shop</h2>
+    <div>
+        <span>Корзина: <span class="cart-counter" id="cartCount">0</span></span>
+    </div>
+</header>
+
+<div class="product">
+    <h1 class="product-name">Кофемашина Bosch TKA8633</h1>
+    <div class="product-meta">
+        <span>Артикул: <span class="sku">BSH-87632</span></span>
+        <span>⭐ 4.8 (24 отзыва)</span>
+    </div>
+
+    <img src="https://via.placeholder.com/400x300?text=Coffee+Machine" alt="Bosch TKA8633" class="product-image" style="margin:20px 0;">
+
+    <div class="price">7 990 ₽</div>
+    <div style="color: #999; text-decoration: line-through;">9 490 ₽</div>
+
+    <div class="actions" style="margin-top: 20px;">
+        <!-- Главная цель: эта кнопка -->
+        <button
+            id="addToCartBtn"
+            class="btn btn-primary add-to-cart-btn"
+            data-action="add-to-cart"
+            data-product-id="87632"
+            onclick="addToCart()"
+        >В корзину</button>
+
+        <!-- Anti-pattern: кнопка избранного -->
+        <button class="btn wishlist-btn" data-action="add-to-wishlist" aria-label="Add to wishlist">
+            ♡ В избранное
+        </button>
+
+        <!-- Дополнительная кнопка покупки -->
+        <button class="btn btn-secondary buy-now-btn" data-action="buy-now">Купить сейчас</button>
+
+        <!-- disabled-кнопка — не должна выбираться -->
+        <button class="btn btn-primary add-to-cart-btn" disabled>Закончился</button>
+    </div>
+
+    <div style="margin-top: 30px;">
+        <h3>Похожие товары</h3>
+        <a href="/product/55421" class="product-link">Кофемолка Bosch</a> ·
+        <a href="/product/77890" class="product-link">Капсулы Lavazza</a>
+    </div>
+</div>
+
+<script>
+    function addToCart() {
+        const counter = document.getElementById('cartCount');
+        counter.textContent = parseInt(counter.textContent, 10) + 1;
+        document.title = 'Кофемашина Bosch TKA8633 — добавлено в корзину';
+    }
+</script>
+</body>
+</html>
