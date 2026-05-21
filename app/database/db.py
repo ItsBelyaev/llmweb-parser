@@ -58,6 +58,31 @@ async def init_db() -> None:
                 updated_at  TEXT NOT NULL
             )
         """)
+        # Журнал интерактивных действий (ТЗ май 2026)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS interaction_runs (
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                url                  TEXT NOT NULL,
+                action               TEXT NOT NULL,
+                status               TEXT NOT NULL,
+                selector_used        TEXT,
+                selector_source      TEXT,
+                selector_confidence  REAL,
+                element_text         TEXT,
+                page_title_before    TEXT,
+                page_title_after     TEXT,
+                error                TEXT,
+                duration_ms          INTEGER,
+                log_json             TEXT,
+                created_at           TEXT NOT NULL
+            )
+        """)
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_interaction_url ON interaction_runs(url)"
+        )
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_interaction_created ON interaction_runs(created_at)"
+        )
         await db.execute(
             "CREATE INDEX IF NOT EXISTS idx_products_url ON parsed_products(url)"
         )
@@ -247,3 +272,91 @@ async def delete_domain_markup(domain_or_url: str) -> bool:
         )
         await db.commit()
         return cursor.rowcount > 0
+
+
+# ─── CRUD для interaction_runs (интерактивные действия) ──────────────────────
+
+
+async def save_interaction_run(
+    *,
+    url: str,
+    action: str,
+    status: str,
+    selector_used: Optional[str] = None,
+    selector_source: Optional[str] = None,
+    selector_confidence: Optional[float] = None,
+    element_text: Optional[str] = None,
+    page_title_before: Optional[str] = None,
+    page_title_after: Optional[str] = None,
+    error: Optional[str] = None,
+    duration_ms: int = 0,
+    log: Optional[list] = None,
+) -> int:
+    """Сохраняет запись о выполненном интерактивном действии.
+
+    Возвращает id новой записи. Никогда не падает (ошибки логирует).
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    log_json = _json.dumps(log or [], ensure_ascii=False)
+    async with aiosqlite.connect(_db_path()) as db:
+        cursor = await db.execute(
+            """INSERT INTO interaction_runs
+               (url, action, status, selector_used, selector_source,
+                selector_confidence, element_text, page_title_before,
+                page_title_after, error, duration_ms, log_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                url, action, status, selector_used, selector_source,
+                selector_confidence, element_text, page_title_before,
+                page_title_after, error, duration_ms, log_json, now,
+            ),
+        )
+        await db.commit()
+        row_id = cursor.lastrowid
+    logger.info("💾 Interaction run id=%s action=%s status=%s", row_id, action, status)
+    return row_id
+
+
+async def get_interaction_runs(limit: int = 50, offset: int = 0) -> List[dict]:
+    async with aiosqlite.connect(_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM interaction_runs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+    out: List[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["log"] = _json.loads(d.pop("log_json") or "[]")
+        except Exception:
+            d["log"] = []
+            d.pop("log_json", None)
+        out.append(d)
+    return out
+
+
+async def get_interaction_run_by_id(record_id: int) -> Optional[dict]:
+    async with aiosqlite.connect(_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM interaction_runs WHERE id = ?", (record_id,)
+        )
+        row = await cursor.fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    try:
+        d["log"] = _json.loads(d.pop("log_json") or "[]")
+    except Exception:
+        d["log"] = []
+        d.pop("log_json", None)
+    return d
+
+
+async def count_interaction_runs() -> int:
+    async with aiosqlite.connect(_db_path()) as db:
+        cursor = await db.execute("SELECT COUNT(*) FROM interaction_runs")
+        row = await cursor.fetchone()
+    return row[0] if row else 0

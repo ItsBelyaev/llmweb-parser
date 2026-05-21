@@ -69,6 +69,48 @@ Answer:""",
 # --------------------------------------------------------------------------- #
 
 
+INTERACTIVE_ELEMENT_TEMPLATE = PromptTemplate(
+    input_variables=["intent", "html"],
+    template="""You are analyzing an HTML page from an online store.
+
+Your task: find the CSS selector for an element that performs the
+following user intent:
+
+  Intent: "{intent}"
+
+Common phrasings (in any language) for "add_to_cart": Add to cart,
+В корзину, Купить, Добавить в корзину, Buy now, Add to bag, Acheter,
+In den Warenkorb. AVOID buttons that say "wishlist", "избранное",
+"compare" — those are different intents.
+
+Common phrasings for "buy_now": Buy now, Купить сейчас, Checkout,
+Оформить заказ, Proceed to checkout.
+
+Common phrasings for "open_product": View, Подробнее, Перейти,
+See more, Details.
+
+Return ONLY valid JSON, no markdown, no prose:
+
+{{
+  "selector": "<a robust CSS selector>",
+  "confidence": <number from 0 to 100>,
+  "reasoning": "<one short sentence why this element matches>"
+}}
+
+Rules:
+1. Prefer button/a/input tags with clear class names or data-* attributes.
+2. Avoid auto-generated hashes like .css-1a2b3c.
+3. The selector must uniquely identify exactly one element in the HTML below.
+4. If no suitable element exists, return: {{"selector": null, "confidence": 0, "reasoning": "not found"}}
+5. confidence < 50 means you are guessing — be honest.
+
+HTML:
+{html}
+
+JSON:""",
+)
+
+
 SELECTORS_GENERATION_TEMPLATE = PromptTemplate(
     input_variables=["html"],
     template="""You are an expert in CSS selectors and HTML structure analysis.

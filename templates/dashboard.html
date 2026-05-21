@@ -291,6 +291,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="direct">⚡ Прямое извлечение</button>
     <button class="tab" data-tab="selectors">🎯 CSS-селекторы</button>
+    <button class="tab" data-tab="interact">🖱️ Действия</button>
     <button class="tab" data-tab="history">📋 История</button>
   </div>
 
@@ -318,6 +319,20 @@
         </div>
         <div>
           <button id="parseBtn" onclick="runParse()">▶ Запустить</button>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:6px">
+        <div class="form-col" style="flex:1">
+          <label title="Доп. ожидание для SPA вроде Wildberries">
+            Доп. задержка после загрузки (мс)
+          </label>
+          <input type="number" id="extraWaitMs" value="0" min="0" max="30000" step="1000" />
+        </div>
+        <div class="form-col" style="flex:2">
+          <label title="CSS-селектор, появления которого нужно дождаться">
+            Дождаться селектора (опц.)
+          </label>
+          <input type="text" id="waitSelector" placeholder="например: h1 или .price" />
         </div>
       </div>
       <div id="status" class="status"></div>
@@ -412,6 +427,86 @@
     </div>
   </div>
 
+  <!-- ── TAB: интерактивные действия ── -->
+  <div class="tab-content" data-tab="interact">
+
+    <div class="card">
+      <h2>🖱️ Интерактивные действия на странице</h2>
+      <p class="muted">
+        Открываем страницу в headless Chromium и выполняем действие: нажимаем кнопку «В корзину», переходим в карточку товара или кликаем по произвольному элементу. Система <strong>сама подбирает CSS-селектор</strong> через эвристику (текст, aria-label, class-patterns, scoring) и при низкой уверенности обращается к LLM. Работает на любом интернет-магазине без жёстких правил под конкретный сайт.
+      </p>
+
+      <div class="form-row">
+        <div class="form-col" style="flex: 3">
+          <label>URL страницы товара</label>
+          <input type="url" id="actUrl" placeholder="https://www.example.com/products/123" />
+        </div>
+        <div class="form-col">
+          <label>Действие</label>
+          <select id="actAction">
+            <option value="add_to_cart" selected>Добавить в корзину</option>
+            <option value="buy_now">Купить сейчас</option>
+            <option value="open_product">Открыть карточку товара</option>
+            <option value="click_text">Кликнуть по тексту</option>
+            <option value="custom_selector">Кастомный CSS-селектор</option>
+          </select>
+        </div>
+        <div>
+          <button id="actBtn" onclick="runInteract()">🖱️ Выполнить</button>
+        </div>
+      </div>
+
+      <div class="form-row" id="actExtras" style="margin-top:8px">
+        <div class="form-col" id="actTextHintWrap" style="flex:1; display:none;">
+          <label>Текст для поиска (click_text)</label>
+          <input type="text" id="actTextHint" placeholder="например: В корзину" />
+        </div>
+        <div class="form-col" id="actSelectorWrap" style="flex:1; display:none;">
+          <label>CSS-селектор (custom_selector)</label>
+          <input type="text" id="actSelector" placeholder="например: button.add-to-cart" />
+        </div>
+        <div class="form-col" style="flex:1">
+          <label>LLM-fallback</label>
+          <select id="actLLM">
+            <option value="true" selected>Включён (если эвристика не уверена)</option>
+            <option value="false">Только эвристика</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:6px">
+        <div class="form-col" style="flex:1">
+          <label title="Доп. ожидание для SPA. Для Wildberries обычно нужно 5000-8000.">
+            Доп. задержка после загрузки (мс)
+          </label>
+          <input type="number" id="actExtraWaitMs" value="0" min="0" max="30000" step="1000" />
+        </div>
+        <div class="form-col" style="flex:2">
+          <label>Дождаться селектора (опц.)</label>
+          <input type="text" id="actWaitSelector" placeholder="например: h1 или [data-testid=cart]" />
+        </div>
+      </div>
+
+      <div id="actStatus" class="status"></div>
+
+      <div id="actResult" class="result-card">
+        <h3>Результат</h3>
+        <div class="result-grid">
+          <div class="result-field"><label>Статус</label><div class="value" id="ar-status">—</div></div>
+          <div class="result-field"><label>Источник селектора</label><div class="value" id="ar-source">—</div></div>
+          <div class="result-field"><label>Уверенность</label><div class="value" id="ar-conf">—</div></div>
+          <div class="result-field"><label>Время</label><div class="value" id="ar-dur">—</div></div>
+        </div>
+        <div class="result-field"><label>Использованный селектор</label><div class="value" id="ar-selector">—</div></div>
+        <div class="result-field"><label>Текст элемента</label><div class="value" id="ar-text">—</div></div>
+        <div class="result-field"><label>Заголовок страницы до клика</label><div class="value" id="ar-before">—</div></div>
+        <div class="result-field"><label>Заголовок страницы после клика</label><div class="value" id="ar-after">—</div></div>
+        <div id="ar-error" style="margin-top:10px; color:var(--red); font-size:13px;"></div>
+        <h3>Технический лог</h3>
+        <div id="ar-log" class="selectors-block"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── TAB: история ── -->
   <div class="tab-content" data-tab="history">
     <div class="card">
@@ -456,6 +551,76 @@
     if (name === 'history') loadHistory();
     if (name === 'selectors') loadDomains();
   }
+
+  // ── показ доп. полей в зависимости от выбранного действия ──
+  document.getElementById('actAction').addEventListener('change', function() {
+    const a = this.value;
+    document.getElementById('actTextHintWrap').style.display = (a === 'click_text') ? '' : 'none';
+    document.getElementById('actSelectorWrap').style.display = (a === 'custom_selector') ? '' : 'none';
+  });
+
+  async function runInteract() {
+    const url = document.getElementById('actUrl').value.trim();
+    const action = document.getElementById('actAction').value;
+    const text_hint = document.getElementById('actTextHint').value.trim() || null;
+    const selector = document.getElementById('actSelector').value.trim() || null;
+    const use_llm_fallback = document.getElementById('actLLM').value === 'true';
+    const extra_wait_ms = parseInt(document.getElementById('actExtraWaitMs').value, 10) || 0;
+    const wait_for_selector = document.getElementById('actWaitSelector').value.trim() || null;
+    const btn = document.getElementById('actBtn');
+    if (!url) return setStatus('actStatus', '⚠️ Введите URL', 'error');
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Выполняем...';
+    document.getElementById('actResult').classList.remove('active');
+    setStatus('actStatus', '<span class="spinner"></span> Открываем страницу и ищем кнопку...');
+
+    try {
+      const res = await fetch(`${API}/interact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          url, action, text_hint, selector, use_llm_fallback,
+          extra_wait_ms, wait_for_selector,
+        }),
+      });
+      const data = await res.json();
+      showInteractResult(data);
+      const cls = data.status === 'success' ? 'success' : (data.status === 'not_found' ? 'warn' : 'error');
+      const emoji = data.status === 'success' ? '✅' : (data.status === 'not_found' ? '⚠️' : '❌');
+      setStatus('actStatus', `${emoji} ${data.status}` + (data.error ? ' — ' + escapeHTML(data.error) : ''), cls);
+      loadHistory();
+    } catch (e) {
+      setStatus('actStatus', '❌ Сеть: ' + escapeHTML(e.message), 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🖱️ Выполнить';
+    }
+  }
+
+  function showInteractResult(d) {
+    const card = document.getElementById('actResult');
+    card.classList.add('active');
+
+    document.getElementById('ar-status').textContent = d.status;
+    document.getElementById('ar-source').textContent = d.selector_source || '—';
+    document.getElementById('ar-conf').textContent = d.selector_confidence != null ? d.selector_confidence.toFixed(1) : '—';
+    document.getElementById('ar-dur').textContent = (d.duration_ms || 0) + ' мс';
+    setField('ar-selector', d.selector_used);
+    setField('ar-text', d.element_text);
+    setField('ar-before', d.page_title_before);
+    setField('ar-after', d.page_title_after);
+    document.getElementById('ar-error').textContent = d.error ? '⚠️ ' + d.error : '';
+
+    const logEl = document.getElementById('ar-log');
+    if (d.log && d.log.length) {
+      logEl.innerHTML = d.log.map(s =>
+        `<div><span class="key">[${String(s.timestamp_ms).padStart(5,' ')} мс]</span> <span class="val">${escapeHTML(s.step)}</span>: ${escapeHTML(s.detail)}</div>`
+      ).join('');
+    } else {
+      logEl.textContent = 'лог пуст';
+    }
+  }
   document.querySelectorAll('.tab').forEach(btn =>
     btn.addEventListener('click', () => activateTab(btn.dataset.tab))
   );
@@ -486,6 +651,8 @@
   async function runParse() {
     const url = document.getElementById('urlInput').value.trim();
     const source = document.getElementById('sourceSelect').value;
+    const extra_wait_ms = parseInt(document.getElementById('extraWaitMs').value, 10) || 0;
+    const wait_for_selector = document.getElementById('waitSelector').value.trim() || null;
     const btn = document.getElementById('parseBtn');
     if (!url) { setStatus('status', '⚠️ Введите URL', 'error'); return; }
 
@@ -498,7 +665,7 @@
       const res = await fetch(`${API}/parse`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, source }),
+        body: JSON.stringify({ url, source, extra_wait_ms, wait_for_selector }),
       });
       const data = await res.json();
       showResult(data);

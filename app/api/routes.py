@@ -30,6 +30,10 @@ from app.database.db import (
     get_domain_markup,
     list_domain_markups,
     delete_domain_markup,
+    save_interaction_run,
+    get_interaction_runs,
+    get_interaction_run_by_id,
+    count_interaction_runs,
 )
 from app.llm.parser import LLMParser
 from app.models.schemas import (
@@ -37,7 +41,11 @@ from app.models.schemas import (
     DomainMarkupList,
     InteractionCreate,
     InteractionList,
+    InteractionLogStep,
     InteractionResponse,
+    InteractRequest,
+    InteractResponse,
+    InteractResponseList,
     ParseRequest,
     ParseResponse,
     ParseResponseList,
@@ -50,6 +58,7 @@ from app.models.schemas import (
 from app.scraper.applier import apply_selectors, origin, validate_selectors
 from app.scraper.cleaner import clean_html
 from app.scraper.fetcher import fetch_page
+from app.scraper.interactor import PageInteractor
 from app.toon.serializer import dump_domains
 
 logger = logging.getLogger(__name__)
@@ -78,8 +87,13 @@ async def parse_product(req: ParseRequest):
     raw_response: Optional[str] = None
 
     try:
-        # 1. Загрузка страницы
-        html = await fetch_page(req.url)
+        # 1. Загрузка страницы (с поддержкой extra_wait_ms / wait_for_selector
+        # для медленных SPA-маркетплейсов).
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
 
         # 2. Очистка HTML
         cleaned_html = clean_html(html)
@@ -275,7 +289,11 @@ async def selectors_generate(req: SelectorsGenerateRequest):
     await save_interaction("selectors_generate", req.url)
 
     try:
-        html = await fetch_page(req.url)
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("fetch failed: %s", exc)
         return SelectorsGenerateResponse(status="error", error=f"загрузка страницы: {exc}")
@@ -329,7 +347,11 @@ async def selectors_apply(req: SelectorsApplyRequest):
     markup = DomainMarkup(**markup_dict)
 
     try:
-        html = await fetch_page(req.url)
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
     except Exception as exc:  # noqa: BLE001
         record_id = await save_parse_result(
             url=req.url, source="selectors", status="error", error=str(exc)
@@ -418,3 +440,162 @@ async def selectors_delete(domain: str):
     if not ok:
         raise HTTPException(status_code=404, detail="Разметка не найдена")
     return {"status": "success"}
+
+
+# ─── Интерактивные действия (ТЗ май 2026) ────────────────────────────────────
+
+
+@router.post(
+    "/interact",
+    response_model=InteractResponse,
+    summary="Универсальное интерактивное действие на странице",
+)
+async def interact(req: InteractRequest):
+    """Открывает страницу через Playwright и выполняет интерактивное действие.
+
+    Поддерживаемые действия (поле ``action``):
+
+    * ``add_to_cart`` — найти и нажать кнопку «Добавить в корзину».
+    * ``buy_now`` — кнопка «Купить сейчас» / Checkout.
+    * ``open_product`` — открыть карточку товара.
+    * ``click_text`` — кликнуть по элементу с текстом из ``text_hint``.
+    * ``custom_selector`` — кликнуть по явному CSS-селектору из ``selector``.
+
+    Стратегия поиска:
+        1. Эвристический scoring (быстро, бесплатно).
+        2. Если score < порога — LLM-fallback (если ``use_llm_fallback=true``).
+        3. Если оба не дали уверенного результата — ``status=not_found``.
+
+    Никогда не возвращает 5xx из-за ошибок взаимодействия — все ошибки
+    оборачиваются в ``status="error"`` с диагностическим логом.
+    """
+    logger.info("POST /interact url=%s action=%s", req.url, req.action)
+    await save_interaction("interact_request", f"{req.action}:{req.url}")
+
+    interactor = PageInteractor(llm=_llm_parser)
+    result = await interactor.run(
+        url=req.url,
+        action=req.action,
+        selector=req.selector,
+        text_hint=req.text_hint,
+        intent=req.intent,
+        use_llm_fallback=req.use_llm_fallback,
+        wait_for_selector=req.wait_for_selector,
+        extra_wait_ms=req.extra_wait_ms,
+    )
+
+    record_id = await save_interaction_run(
+        url=result.url,
+        action=result.action,
+        status=result.status,
+        selector_used=result.selector_used,
+        selector_source=result.selector_source,
+        selector_confidence=result.selector_confidence,
+        element_text=result.element_text,
+        page_title_before=result.page_title_before,
+        page_title_after=result.page_title_after,
+        error=result.error,
+        duration_ms=result.duration_ms,
+        log=[s.__dict__ for s in result.log],
+    )
+
+    return InteractResponse(
+        id=record_id,
+        status=result.status,
+        url=result.url,
+        action=result.action,
+        selector_used=result.selector_used,
+        selector_source=result.selector_source,
+        selector_confidence=result.selector_confidence,
+        element_text=result.element_text,
+        page_title_before=result.page_title_before,
+        page_title_after=result.page_title_after,
+        error=result.error,
+        duration_ms=result.duration_ms,
+        log=[
+            InteractionLogStep(step=s.step, detail=s.detail, timestamp_ms=s.timestamp_ms)
+            for s in result.log
+        ],
+        timestamp=datetime.now(timezone.utc),
+    )
+
+
+@router.post(
+    "/cart/add",
+    response_model=InteractResponse,
+    summary="Шорткат: добавить товар в корзину",
+)
+async def cart_add(req: SelectorsApplyRequest):
+    """Удобный шорткат для самого популярного сценария.
+
+    Эквивалентно POST /api/interact с action=add_to_cart.
+    """
+    request = InteractRequest(url=req.url, action="add_to_cart")
+    return await interact(request)
+
+
+@router.get(
+    "/interactions/runs",
+    response_model=InteractResponseList,
+    summary="История интерактивных действий",
+)
+async def list_interaction_runs(
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    rows = await get_interaction_runs(limit=limit, offset=offset)
+    total = await count_interaction_runs()
+    items: list[InteractResponse] = []
+    for r in rows:
+        items.append(
+            InteractResponse(
+                id=r["id"],
+                status=r["status"],
+                url=r["url"],
+                action=r["action"],
+                selector_used=r.get("selector_used"),
+                selector_source=r.get("selector_source"),
+                selector_confidence=r.get("selector_confidence"),
+                element_text=r.get("element_text"),
+                page_title_before=r.get("page_title_before"),
+                page_title_after=r.get("page_title_after"),
+                error=r.get("error"),
+                duration_ms=r.get("duration_ms") or 0,
+                log=[
+                    InteractionLogStep(**s) if isinstance(s, dict) else s
+                    for s in (r.get("log") or [])
+                ],
+                timestamp=datetime.fromisoformat(r["created_at"]),
+            )
+        )
+    return InteractResponseList(interactions=items, total=total)
+
+
+@router.get(
+    "/interactions/runs/{record_id}",
+    response_model=InteractResponse,
+    summary="Детали конкретного действия",
+)
+async def get_interaction_run(record_id: int):
+    r = await get_interaction_run_by_id(record_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Запись не найдена")
+    return InteractResponse(
+        id=r["id"],
+        status=r["status"],
+        url=r["url"],
+        action=r["action"],
+        selector_used=r.get("selector_used"),
+        selector_source=r.get("selector_source"),
+        selector_confidence=r.get("selector_confidence"),
+        element_text=r.get("element_text"),
+        page_title_before=r.get("page_title_before"),
+        page_title_after=r.get("page_title_after"),
+        error=r.get("error"),
+        duration_ms=r.get("duration_ms") or 0,
+        log=[
+            InteractionLogStep(**s) if isinstance(s, dict) else s
+            for s in (r.get("log") or [])
+        ],
+        timestamp=datetime.fromisoformat(r["created_at"]),
+    )

@@ -10,31 +10,66 @@ from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
-# Теги, которые удаляем полностью вместе с содержимым
-_REMOVE_TAGS = {
+# Теги, которые удаляем полностью вместе с содержимым.
+# Поведение меняется в зависимости от режима clean_html(keep_interactive=...):
+# - для парсинга цен (по умолчанию) — удаляем формы и кнопки (они шум).
+# - для интерактора — формы, кнопки и input ОСТАВЛЯЕМ, потому что
+#   именно их нам нужно показать LLM / эвристике.
+_REMOVE_TAGS_PARSE = {
     "script", "style", "noscript", "iframe", "svg",
     "meta", "link", "head", "footer", "nav", "aside",
     "header", "form", "button", "input", "select", "textarea",
 }
+_REMOVE_TAGS_INTERACT = {
+    "script", "style", "noscript", "iframe", "svg",
+    "meta", "link", "head", "footer",
+    # ВНИМАНИЕ: nav и header иногда содержат корзину, поэтому не трогаем.
+    # form/button/input/select/textarea ОСТАВЛЯЕМ.
+}
 
-# Атрибуты, которые оставляем (все остальные удаляем)
-_KEEP_ATTRS = {"src", "href", "alt", "class", "data-article", "data-sku", "id"}
+# Атрибуты, которые оставляем (все остальные удаляем).
+_KEEP_ATTRS_PARSE = {"src", "href", "alt", "class", "data-article", "data-sku", "id"}
+# Для interactor оставляем гораздо больше — на этих атрибутах основано
+# распознавание кнопок (aria-label, data-action, role, type, name).
+_KEEP_ATTRS_INTERACT = {
+    "id", "class", "src", "href", "alt", "title",
+    "aria-label", "role", "type", "name", "value",
+    "data-action", "data-event", "data-testid",
+    "data-product-id", "data-sku", "data-id",
+    "onclick", "disabled",
+}
 
 MAX_HTML_LENGTH = 12_000  # символов — укладываемся в контекст LLM
 
 
-def clean_html(html: str, max_length: int = MAX_HTML_LENGTH) -> str:
+def clean_html(
+    html: str,
+    max_length: int = MAX_HTML_LENGTH,
+    keep_interactive: bool = False,
+) -> str:
     """
     Очищает HTML от лишних тегов и атрибутов.
     Возвращает компактный HTML не длиннее max_length символов.
+
+    Args:
+        html: исходный HTML.
+        max_length: максимальная длина результата.
+        keep_interactive: если True, бережно сохраняет ``button``, ``input``,
+            ``form``, ``a`` и их атрибуты ``aria-label``, ``data-*``,
+            ``role`` — это нужно для интерактивных действий (interactor).
+            По умолчанию False — режим извлечения данных, в котором
+            формы и кнопки лишь шумят.
     """
     if not html:
         return ""
 
     soup = BeautifulSoup(html, "lxml")
 
+    remove_tags = _REMOVE_TAGS_INTERACT if keep_interactive else _REMOVE_TAGS_PARSE
+    keep_attrs = _KEEP_ATTRS_INTERACT if keep_interactive else _KEEP_ATTRS_PARSE
+
     # Удаляем ненужные теги
-    for tag in soup(_REMOVE_TAGS):
+    for tag in soup(remove_tags):
         tag.decompose()
 
     # Чистим атрибуты
@@ -44,14 +79,19 @@ def clean_html(html: str, max_length: int = MAX_HTML_LENGTH) -> str:
             attrs = {k: v for k, v in tag.attrs.items() if k in {"src", "alt"}}
             tag.attrs = attrs
         else:
-            attrs = {k: v for k, v in tag.attrs.items() if k in _KEEP_ATTRS}
+            attrs = {k: v for k, v in tag.attrs.items() if k in keep_attrs}
             tag.attrs = attrs
 
-    # Удаляем пустые теги (без текста и без img внутри), сами img не трогаем
+    # Удаляем пустые теги (без текста и без img внутри).
+    # В интерактивном режиме НЕ выкидываем button/input/a/form — они могут
+    # быть с текстом-через-картинку (icon-only buttons).
+    interactive_safe = {"html", "body", "img", "button", "input", "a", "form", "label"}
     changed = True
     while changed:
         changed = False
         for tag in soup.find_all(True):
+            if keep_interactive and tag.name in interactive_safe:
+                continue
             if tag.name in {"html", "body", "img"}:
                 continue
             has_text = bool(tag.get_text(strip=True))
@@ -72,7 +112,7 @@ def clean_html(html: str, max_length: int = MAX_HTML_LENGTH) -> str:
         )
         cleaned = _smart_truncate(cleaned, max_length)
 
-    logger.info("🧹 HTML очищен: %d символов", len(cleaned))
+    logger.info("🧹 HTML очищен: %d символов (interactive=%s)", len(cleaned), keep_interactive)
     return cleaned
 
 
