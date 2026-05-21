@@ -31,6 +31,8 @@ class ParseRequest(BaseModel):
 
     url: str
     source: str = "other"
+    wait_for_selector: Optional[str] = None  # для медленных SPA
+    extra_wait_ms: int = 0                   # доп. задержка после загрузки
 
     @field_validator("url")
     @classmethod
@@ -238,6 +240,8 @@ class SelectorsGenerateRequest(BaseModel):
 
     url: str
     device: str = "DESKTOP"
+    wait_for_selector: Optional[str] = None
+    extra_wait_ms: int = 0
 
     @field_validator("url")
     @classmethod
@@ -265,6 +269,8 @@ class SelectorsApplyRequest(BaseModel):
     """Запрос на применение сохранённых селекторов к новому URL."""
 
     url: str
+    wait_for_selector: Optional[str] = None
+    extra_wait_ms: int = 0
 
     @field_validator("url")
     @classmethod

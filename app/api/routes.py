@@ -87,8 +87,13 @@ async def parse_product(req: ParseRequest):
     raw_response: Optional[str] = None
 
     try:
-        # 1. Загрузка страницы
-        html = await fetch_page(req.url)
+        # 1. Загрузка страницы (с поддержкой extra_wait_ms / wait_for_selector
+        # для медленных SPA-маркетплейсов).
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
 
         # 2. Очистка HTML
         cleaned_html = clean_html(html)
@@ -284,7 +289,11 @@ async def selectors_generate(req: SelectorsGenerateRequest):
     await save_interaction("selectors_generate", req.url)
 
     try:
-        html = await fetch_page(req.url)
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
     except Exception as exc:  # noqa: BLE001
         logger.error("fetch failed: %s", exc)
         return SelectorsGenerateResponse(status="error", error=f"загрузка страницы: {exc}")
@@ -338,7 +347,11 @@ async def selectors_apply(req: SelectorsApplyRequest):
     markup = DomainMarkup(**markup_dict)
 
     try:
-        html = await fetch_page(req.url)
+        html = await fetch_page(
+            req.url,
+            wait_for_selector=req.wait_for_selector,
+            extra_wait_ms=req.extra_wait_ms,
+        )
     except Exception as exc:  # noqa: BLE001
         record_id = await save_parse_result(
             url=req.url, source="selectors", status="error", error=str(exc)
