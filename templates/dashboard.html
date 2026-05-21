@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Web Parser — Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card: #1a1d27;
+      --border: #2a2d3a;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --green: #22c55e;
+      --red: #ef4444;
+      --yellow: #eab308;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --font: 'Segoe UI', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; }
+
+    /* ── Header ── */
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .logo { font-size: 20px; font-weight: 700; color: var(--accent); }
+    .logo span { color: var(--text); }
+    nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-left: 20px;
+      font-size: 14px;
+      transition: color .2s;
+    }
+    nav a:hover { color: var(--accent-hover); }
+    nav a.docs { color: var(--accent); font-weight: 600; }
+
+    /* ── Layout ── */
+    main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+    h3 { font-size: 15px; font-weight: 600; margin: 18px 0 10px; color: var(--accent-hover); }
+
+    /* ── Tabs ── */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      background: transparent;
+      color: var(--muted);
+      border: none;
+      padding: 12px 18px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      border-bottom: 2px solid transparent;
+      transition: all .2s;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; animation: fadeIn .25s; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+    .muted { color: var(--muted); font-size: 13px; line-height: 1.55; margin-bottom: 14px; }
+
+    /* ── Form ── */
+    .form-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+    .form-col { flex: 1; min-width: 200px; }
+    .form-col label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    input[type="text"], input[type="url"], select {
+      width: 100%;
+      background: #0f1117;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    select { cursor: pointer; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-danger { background: var(--red); }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+    .btn-secondary { background: #374151; }
+    .btn-secondary:hover:not(:disabled) { background: #4b5563; }
+
+    /* ── Status ── */
+    .status {
+      margin-top: 12px;
+      font-size: 13px;
+      min-height: 20px;
+      color: var(--muted);
+    }
+    .status.error { color: var(--red); }
+    .status.success { color: var(--green); }
+    .status.warn { color: var(--yellow); }
+
+    /* ── Result card ── */
+    .result-card { display: none; }
+    .result-card.active { display: block; }
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .result-field label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .result-field .value {
+      font-size: 15px;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .result-field .value.null { color: var(--muted); font-style: italic; font-weight: 400; }
+    .result-field .value.price { color: var(--green); font-size: 20px; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .tag.success { background: #14532d; color: var(--green); }
+    .tag.error { background: #450a0a; color: var(--red); }
+    .tag.mode { background: #1e293b; color: var(--accent-hover); }
+
+    .img-preview { margin-top: 12px; }
+    .img-preview img {
+      max-width: 180px;
+      max-height: 180px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      object-fit: contain;
+      background: #0f1117;
+    }
+
+    /* ── Selectors block ── */
+    .selectors-block {
+      background: #0f1117;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 320px; overflow: auto;
+      margin-top: 10px;
+    }
+    .selectors-block .key { color: var(--accent-hover); }
+    .selectors-block .val { color: var(--green); }
+    .selectors-block .nullval { color: var(--muted); font-style: italic; }
+
+    .comments {
+      background: rgba(234, 179, 8, 0.07);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      margin-top: 10px;
+      font-size: 13px;
+      color: #fde68a;
+    }
+    .comments ul { padding-left: 20px; margin-top: 6px; }
+
+    /* ── History table ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid #1e2130; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1e2130; }
+    td.url { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.url a { color: var(--accent); text-decoration: none; }
+    td.url a:hover { text-decoration: underline; }
+    .empty { color: var(--muted); text-align: center; padding: 32px; font-size: 14px; }
+
+    /* ── Loader ── */
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .header-row .actions { display: flex; gap: 8px; }
+    .header-row .actions button,
+    .header-row .actions a {
+      padding: 6px 14px;
+      font-size: 13px;
+      text-decoration: none;
+      color: #fff;
+      background: #374151;
+      border-radius: 6px;
+      display: inline-block;
+    }
+    .header-row .actions a:hover { background: #4b5563; }
+
+    /* ── Domain list ── */
+    .domain-item {
+      background: #0f1117;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+    .domain-item h4 { color: var(--accent); margin-bottom: 4px; font-size: 14px; }
+    .domain-item .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+    .domain-item .row-buttons { display: flex; gap: 8px; margin-top: 10px; }
+    .domain-item .row-buttons button { padding: 6px 12px; font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🤖 LLM Web<span>Parser</span></div>
+  <nav>
+    <a href="#" onclick="activateTab('direct')">Прямое извлечение</a>
+    <a href="#" onclick="activateTab('selectors')">CSS-селекторы</a>
+    <a href="#" onclick="activateTab('history')">История</a>
+    <a href="/docs" class="docs" target="_blank">📄 API Docs</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ── Tabs ── -->
+  <div class="tabs">
+    <button class="tab active" data-tab="direct">⚡ Прямое извлечение</button>
+    <button class="tab" data-tab="selectors">🎯 CSS-селекторы</button>
+    <button class="tab" data-tab="history">📋 История</button>
+  </div>
+
+  <!-- ── TAB: прямое извлечение ── -->
+  <div class="tab-content active" data-tab="direct">
+
+    <div class="card">
+      <h2>⚡ Прямое извлечение через LLM</h2>
+      <p class="muted">
+        Загружаем страницу, передаём очищенный HTML в LLM, получаем структурированные данные о товаре. Подходит для разовых запросов на любых сайтах.
+      </p>
+      <div class="form-row">
+        <div class="form-col" style="flex: 3">
+          <label>URL товара</label>
+          <input type="url" id="urlInput" placeholder="https://www.example.com/product/123" />
+        </div>
+        <div class="form-col">
+          <label>Источник</label>
+          <select id="sourceSelect">
+            <option value="other" selected>Другой</option>
+            <option value="wildberries">Wildberries</option>
+            <option value="ozon">Ozon</option>
+            <option value="yandex_market">Яндекс.Маркет</option>
+          </select>
+        </div>
+        <div>
+          <button id="parseBtn" onclick="runParse()">▶ Запустить</button>
+        </div>
+      </div>
+      <div id="status" class="status"></div>
+    </div>
+
+    <div class="card result-card" id="result-card">
+      <div class="header-row">
+        <h2>📦 Результат</h2>
+        <span id="result-tag" class="tag"></span>
+      </div>
+      <div class="result-grid">
+        <div class="result-field"><label>Название</label><div class="value" id="r-title">—</div></div>
+        <div class="result-field"><label>Цена</label><div class="value price" id="r-price">—</div></div>
+        <div class="result-field"><label>Артикул</label><div class="value" id="r-article">—</div></div>
+        <div class="result-field"><label>ID записи</label><div class="value" id="r-id">—</div></div>
+      </div>
+      <div class="result-field"><label>URL изображения</label><div class="value" id="r-image-url">—</div></div>
+      <div class="img-preview" id="img-preview" style="display:none">
+        <img id="r-img" src="" alt="Изображение товара" />
+      </div>
+      <div id="r-error" style="margin-top:12px; color:var(--red); font-size:13px;"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: CSS-селекторы ── -->
+  <div class="tab-content" data-tab="selectors">
+
+    <div class="card">
+      <h2>🎯 Генерация CSS-селекторов</h2>
+      <p class="muted">
+        Один раз просим LLM проанализировать «опорную» страницу товара и вернуть CSS-селекторы (name, price, article, pictures и т.д.). Селекторы сохраняются и применяются ко всем последующим URL того же домена <strong>без повторного вызова LLM</strong> — это быстро и бесплатно.
+      </p>
+      <div class="form-row">
+        <div class="form-col" style="flex: 3">
+          <label>URL образца страницы товара</label>
+          <input type="url" id="genUrl" placeholder="https://www.example.com/products/123" />
+        </div>
+        <div class="form-col">
+          <label>Устройство</label>
+          <select id="genDevice">
+            <option value="DESKTOP" selected>DESKTOP</option>
+            <option value="MOBILE">MOBILE</option>
+          </select>
+        </div>
+        <div>
+          <button id="genBtn" onclick="runGenerate()">🎯 Сгенерировать</button>
+        </div>
+      </div>
+      <div id="genStatus" class="status"></div>
+      <div id="genResult" class="result-card">
+        <h3>Сгенерированные селекторы</h3>
+        <div id="genSelectorsBlock"></div>
+        <div id="genComments"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>▶ Применить разметку (без LLM)</h2>
+      <p class="muted">
+        Используем уже сохранённую разметку для нового URL того же домена. Никакой LLM не вызывается — чистый BeautifulSoup. Если разметки нет — сначала сгенерируйте её выше.
+      </p>
+      <div class="form-row">
+        <div class="form-col" style="flex: 4">
+          <label>URL товара</label>
+          <input type="url" id="applyUrl" placeholder="https://www.example.com/products/999" />
+        </div>
+        <div>
+          <button id="applyBtn" class="btn-secondary" onclick="runApply()">⚡ Применить</button>
+        </div>
+      </div>
+      <div id="applyStatus" class="status"></div>
+      <div id="applyResult" class="result-card">
+        <h3>Извлечённые данные</h3>
+        <div class="result-grid">
+          <div class="result-field"><label>Название</label><div class="value" id="a-title">—</div></div>
+          <div class="result-field"><label>Цена</label><div class="value price" id="a-price">—</div></div>
+          <div class="result-field"><label>Артикул</label><div class="value" id="a-article">—</div></div>
+          <div class="result-field"><label>URL изображения</label><div class="value" id="a-image">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="header-row">
+        <h2>💾 Сохранённые разметки</h2>
+        <div class="actions">
+          <button class="btn-secondary" onclick="loadDomains()">🔄 Обновить</button>
+          <a href="/api/selectors/export.toon" download="domains.toon" class="btn-secondary" style="text-align:center">📥 Скачать TOON</a>
+        </div>
+      </div>
+      <div id="domainsList"></div>
+    </div>
+  </div>
+
+  <!-- ── TAB: история ── -->
+  <div class="tab-content" data-tab="history">
+    <div class="card">
+      <div class="header-row">
+        <h2>📋 История парсинга</h2>
+        <div class="actions">
+          <button class="btn-secondary" onclick="loadHistory()">🔄 Обновить</button>
+          <button class="btn-danger" onclick="clearHistory()">🗑 Очистить</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Источник</th>
+              <th>URL</th>
+              <th>Название</th>
+              <th>Цена</th>
+              <th>Артикул</th>
+              <th>Статус</th>
+              <th>Время</th>
+            </tr>
+          </thead>
+          <tbody id="historyBody">
+            <tr><td colspan="8" class="empty">Загрузка...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  const API = '/api';
+
+  // ── tabs ──
+  function activateTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    if (name === 'history') loadHistory();
+    if (name === 'selectors') loadDomains();
+  }
+  document.querySelectorAll('.tab').forEach(btn =>
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab))
+  );
+
+  // ── helpers ──
+  function setStatus(elId, msg, cls) {
+    const el = document.getElementById(elId);
+    el.innerHTML = msg;
+    el.className = 'status' + (cls ? ' ' + cls : '');
+  }
+  function setField(id, val) {
+    const el = document.getElementById(id);
+    if (val !== null && val !== undefined && val !== '') {
+      el.textContent = val;
+      el.className = el.className.replace(' null', '');
+    } else {
+      el.textContent = 'не найдено';
+      if (!el.className.includes('null')) el.className += ' null';
+    }
+  }
+  function escapeHTML(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // ── direct extraction ──
+  async function runParse() {
+    const url = document.getElementById('urlInput').value.trim();
+    const source = document.getElementById('sourceSelect').value;
+    const btn = document.getElementById('parseBtn');
+    if (!url) { setStatus('status', '⚠️ Введите URL', 'error'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Парсинг...';
+    document.getElementById('result-card').classList.remove('active');
+    setStatus('status', '<span class="spinner"></span> Загружаем страницу и запускаем LLM...');
+
+    try {
+      const res = await fetch(`${API}/parse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, source }),
+      });
+      const data = await res.json();
+      showResult(data);
+      setStatus('status', '');
+      loadHistory();
+    } catch (e) {
+      setStatus('status', '❌ Ошибка сети: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '▶ Запустить';
+    }
+  }
+
+  function showResult(data) {
+    const card = document.getElementById('result-card');
+    card.classList.add('active');
+    const p = data.product || {};
+    const tag = document.getElementById('result-tag');
+    tag.textContent = data.status === 'success' ? '✅ success' : '❌ error';
+    tag.className = 'tag ' + (data.status === 'success' ? 'success' : 'error');
+
+    setField('r-title', p.title);
+    setField('r-article', p.article);
+    document.getElementById('r-id').textContent = '#' + data.id;
+    document.getElementById('r-price').textContent = p.price != null ? Number(p.price).toLocaleString('ru-RU') + ' ₽' : 'не найдено';
+    document.getElementById('r-price').className = 'value ' + (p.price != null ? 'price' : 'null');
+    setField('r-image-url', p.image_url);
+
+    const imgPrev = document.getElementById('img-preview');
+    if (p.image_url) {
+      document.getElementById('r-img').src = p.image_url;
+      imgPrev.style.display = 'block';
+    } else {
+      imgPrev.style.display = 'none';
+    }
+    document.getElementById('r-error').textContent = data.error ? '⚠️ ' + data.error : '';
+  }
+
+  // ── selectors: generate ──
+  async function runGenerate() {
+    const url = document.getElementById('genUrl').value.trim();
+    const device = document.getElementById('genDevice').value;
+    const btn = document.getElementById('genBtn');
+    if (!url) { setStatus('genStatus', '⚠️ Введите URL', 'error'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Анализ...';
+    document.getElementById('genResult').classList.remove('active');
+    setStatus('genStatus', '<span class="spinner"></span> LLM подбирает CSS-селекторы...');
+
+    try {
+      const res = await fetch(`${API}/selectors/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, device }),
+      });
+      const data = await res.json();
+      if (data.status !== 'success') {
+        setStatus('genStatus', '❌ ' + (data.error || 'Ошибка'), 'error');
+        return;
+      }
+      showGenerated(data.domain);
+      setStatus('genStatus', '✅ Разметка сохранена для ' + data.domain.mainPageUrl, 'success');
+      loadDomains();
+    } catch (e) {
+      setStatus('genStatus', '❌ Ошибка сети: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '🎯 Сгенерировать';
+    }
+  }
+
+  function showGenerated(domain) {
+    const block = document.getElementById('genSelectorsBlock');
+    block.innerHTML = renderSelectorsBlock(domain.productPage);
+
+    const cs = document.getElementById('genComments');
+    if (domain.markdownComments && domain.markdownComments.length) {
+      cs.innerHTML = '<div class="comments"><strong>⚠️ Предупреждения LLM:</strong><ul>' +
+        domain.markdownComments.map(c => '<li>' + escapeHTML(c) + '</li>').join('') +
+        '</ul></div>';
+    } else {
+      cs.innerHTML = '';
+    }
+    document.getElementById('genResult').classList.add('active');
+  }
+
+  function renderSelectorsBlock(pp) {
+    const lines = ['productPage:'];
+    for (const k of ['name', 'price', 'currency', 'pictures', 'category', 'article']) {
+      const v = pp[k];
+      if (v) lines.push('  <span class="key">' + k + '</span>: <span class="val">' + escapeHTML(v) + '</span>');
+      else lines.push('  <span class="key">' + k + '</span>: <span class="nullval">null</span>');
+    }
+    return '<div class="selectors-block">' + lines.join('\n') + '</div>';
+  }
+
+  // ── selectors: apply ──
+  async function runApply() {
+    const url = document.getElementById('applyUrl').value.trim();
+    const btn = document.getElementById('applyBtn');
+    if (!url) { setStatus('applyStatus', '⚠️ Введите URL', 'error'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+    document.getElementById('applyResult').classList.remove('active');
+    setStatus('applyStatus', '<span class="spinner"></span> Применяем разметку...');
+
+    try {
+      const res = await fetch(`${API}/selectors/apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (res.status === 404) {
+        setStatus('applyStatus', '⚠️ Для этого домена нет разметки. Сначала сгенерируйте её выше.', 'warn');
+        return;
+      }
+      if (data.status !== 'success') {
+        setStatus('applyStatus', '❌ ' + (data.error || 'Ошибка'), 'error');
+        return;
+      }
+      const p = data.product || {};
+      setField('a-title', p.title);
+      setField('a-article', p.article);
+      document.getElementById('a-price').textContent = p.price != null ? Number(p.price).toLocaleString('ru-RU') + ' ₽' : 'не найдено';
+      document.getElementById('a-price').className = 'value ' + (p.price != null ? 'price' : 'null');
+      setField('a-image', p.image_url);
+      document.getElementById('applyResult').classList.add('active');
+      setStatus('applyStatus', '✅ Готово', 'success');
+      loadHistory();
+    } catch (e) {
+      setStatus('applyStatus', '❌ Ошибка сети: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '⚡ Применить';
+    }
+  }
+
+  // ── selectors: domains list ──
+  async function loadDomains() {
+    const target = document.getElementById('domainsList');
+    target.innerHTML = '<div class="empty"><span class="spinner"></span> Загрузка...</div>';
+    try {
+      const r = await fetch(`${API}/selectors`);
+      const data = await r.json();
+      if (!data.domains || data.domains.length === 0) {
+        target.innerHTML = '<div class="empty">Сохранённых разметок пока нет</div>';
+        return;
+      }
+      target.innerHTML = data.domains.map(d => `
+        <div class="domain-item">
+          <h4>${escapeHTML(d.mainPageUrl)}</h4>
+          <div class="meta">device: ${escapeHTML(d.device)} ${d.markdownComments && d.markdownComments.length ? '· ⚠️ ' + d.markdownComments.length + ' замечаний' : ''}</div>
+          ${renderSelectorsBlock(d.productPage)}
+          <div class="row-buttons">
+            <button class="btn-danger" onclick="deleteDomain('${encodeURIComponent(domainOf(d.mainPageUrl))}')">🗑 Удалить</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (e) {
+      target.innerHTML = '<div class="empty" style="color:var(--red)">Ошибка: ' + escapeHTML(e.message) + '</div>';
+    }
+  }
+  function domainOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+  }
+  async function deleteDomain(key) {
+    if (!confirm('Удалить разметку для этого домена?')) return;
+    await fetch(`${API}/selectors/${key}`, { method: 'DELETE' });
+    loadDomains();
+  }
+
+  // ── history ──
+  async function loadHistory() {
+    const tbody = document.getElementById('historyBody');
+    try {
+      const res = await fetch(`${API}/results?limit=30`);
+      const data = await res.json();
+      if (!data.results.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="empty">Записей пока нет</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.results.map(r => {
+        const p = r.product || {};
+        const dt = new Date(r.timestamp).toLocaleString('ru-RU');
+        const statusTag = r.status === 'success'
+          ? '<span class="tag success">ok</span>'
+          : '<span class="tag error">err</span>';
+        return `<tr>
+          <td>${r.id}</td>
+          <td>${escapeHTML(r.source)}</td>
+          <td class="url"><a href="${escapeHTML(r.url)}" target="_blank" title="${escapeHTML(r.url)}">${escapeHTML(r.url.slice(0,50))}...</a></td>
+          <td>${escapeHTML((p.title || '').slice(0,40)) || '<span style="color:var(--muted)">—</span>'}</td>
+          <td>${p.price != null ? Number(p.price).toLocaleString('ru-RU') + ' ₽' : '—'}</td>
+          <td>${escapeHTML(p.article || '—')}</td>
+          <td>${statusTag}</td>
+          <td style="color:var(--muted);font-size:12px">${dt}</td>
+        </tr>`;
+      }).join('');
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="8" class="empty" style="color:var(--red)">Ошибка загрузки: ${escapeHTML(e.message)}</td></tr>`;
+    }
+  }
+
+  async function clearHistory() {
+    if (!confirm('Очистить всю историю?')) return;
+    await fetch(`${API}/results`, { method: 'DELETE' });
+    loadHistory();
+  }
+
+  // Enter в URL-полях
+  document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') runParse(); });
+  document.getElementById('genUrl').addEventListener('keydown', e => { if (e.key === 'Enter') runGenerate(); });
+  document.getElementById('applyUrl').addEventListener('keydown', e => { if (e.key === 'Enter') runApply(); });
+
+  // init
+  loadHistory();
+</script>
+</body>
+</html>
