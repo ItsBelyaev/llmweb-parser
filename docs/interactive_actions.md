@@ -155,9 +155,18 @@ clean_html(html, max_length=20_000, keep_interactive=True)
   "selector": null,
   "text_hint": null,
   "intent": null,
-  "use_llm_fallback": true
+  "use_llm_fallback": true,
+  "wait_for_selector": null,
+  "extra_wait_ms": 0
 }
 ```
+
+Параметры:
+
+| Поле | Назначение |
+|---|---|
+| `wait_for_selector` | CSS-селектор, появления которого нужно дождаться (для медленных SPA, типа Wildberries). Например `"h1"` или `".product-page__price"`. |
+| `extra_wait_ms` | Дополнительная пауза (мс) после загрузки страницы. Полезно для сайтов, у которых даже после `networkidle` контент ещё дорисовывается JS-ом. Рекомендуется 3000–10000 для крупных маркетплейсов. |
 
 Ответ:
 
@@ -304,6 +313,43 @@ INTENTS["leave_review"] = Intent(
 
 Никаких изменений в `interactor.py`, `routes.py` или БД — всё работает
 автоматически.
+
+## Антибот и реальные маркетплейсы
+
+Маркетплейсы активно борются со скрейпингом. Для повышения шансов на
+обход стандартных защит реализовано:
+
+* **playwright-stealth** — патчит десятки JS-признаков автоматизации:
+  `navigator.webdriver = undefined`, эмуляция Chrome `chrome.runtime`,
+  правдоподобный WebGL fingerprint, `navigator.plugins`, и т.д.
+* **Реалистичный набор HTTP-заголовков** Chromium 121 на macOS:
+  `Sec-Ch-Ua`, `Sec-Ch-Ua-Platform`, `Sec-Fetch-*`, `Accept-Language: ru-RU`.
+* **timezone_id="Europe/Moscow"** — соответствует пользователю из РФ.
+* **viewport 1366×900** — типичное разрешение реального лэптопа.
+* **Стратегия ожидания** — двухступенчатая: сначала `domcontentloaded`
+  (быстро и гарантированно), потом попытка `networkidle` с ограниченным
+  тайм-аутом (не блокирующая).
+* **Опциональный `wait_for_selector`** + `extra_wait_ms` — для совсем
+  упрямых SPA, у которых даже после `networkidle` контент дорисовывается.
+
+### Результаты на реальных сайтах (21 мая 2026)
+
+| Сайт | Стратегия | Результат |
+|---|---|:-:|
+| `wildberries.ru/catalog/.../detail.aspx` | stealth + extra_wait_ms=8000 | ✅ **success** (LLM нашёл `.product-card__add-basket.j-add-to-basket`, conf=90) |
+| `demoblaze.com/prod.html` | stealth, без доп. параметров | ✅ **success** (LLM нашёл `.btn.btn-success`, conf=90) |
+| `automationexercise.com/product_details/1` | stealth | ⚠️ error (кнопку нашли, но cookie-overlay перекрыл клик) |
+| `books.toscrape.com/.../book.html` | stealth | ✅ **not_found** (на странице книги действительно нет add-to-cart, LLM согласился) |
+| `mvideo.ru/products/...` | stealth + extra_wait_ms=5000 | ⚠️ SPA-shell (контент догружается из API после `networkidle`) |
+| `ozon.ru/product/...` | stealth | ❌ Antibot Captcha (DataDome) |
+| `dns-shop.ru/product/...` | stealth | ❌ HTTP 403 (Akamai/DataDome — анализ TLS-fingerprint) |
+
+**Вывод:** для большинства сайтов система работает «как есть». Для
+маркетплейсов с продвинутой защитой (Ozon, DNS) нужен полный комплект:
+прокси с резидентными IP + emulated TLS fingerprint + headed-режим браузера.
+Это выходит за рамки курсового проекта и в общем — за рамки одного
+универсального сервиса. См. также `docs/analogs.md`: коммерческие
+решения вроде Diffbot и Apify платят за прокси-инфраструктуру.
 
 ## Что НЕ покрыто (намеренно)
 

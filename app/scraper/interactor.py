@@ -138,6 +138,8 @@ class PageInteractor:
         text_hint: Optional[str] = None,
         intent: Optional[str] = None,
         use_llm_fallback: bool = True,
+        wait_for_selector: Optional[str] = None,
+        extra_wait_ms: int = 0,
     ) -> InteractionResult:
         """Главная точка входа.
 
@@ -165,28 +167,97 @@ class PageInteractor:
                         "--no-sandbox",
                         "--disable-setuid-sandbox",
                         "--disable-blink-features=AutomationControlled",
+                        "--disable-features=IsolateOrigins,site-per-process",
                     ],
                 )
                 try:
+                    # Реалистичный User-Agent (последний Chrome на macOS).
+                    UA = (
+                        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/121.0.0.0 Safari/537.36"
+                    )
                     context = await browser.new_context(
-                        viewport={"width": 1280, "height": 800},
+                        viewport={"width": 1366, "height": 900},
                         locale="ru-RU",
+                        timezone_id="Europe/Moscow",
+                        user_agent=UA,
+                        extra_http_headers={
+                            "Accept": (
+                                "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                                "image/avif,image/webp,*/*;q=0.8"
+                            ),
+                            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+                            "Accept-Encoding": "gzip, deflate, br",
+                            "Sec-Ch-Ua": '"Not.A/Brand";v="99", "Chromium";v="121", "Google Chrome";v="121"',
+                            "Sec-Ch-Ua-Mobile": "?0",
+                            "Sec-Ch-Ua-Platform": '"macOS"',
+                            "Sec-Fetch-Dest": "document",
+                            "Sec-Fetch-Mode": "navigate",
+                            "Sec-Fetch-Site": "none",
+                            "Sec-Fetch-User": "?1",
+                            "Upgrade-Insecure-Requests": "1",
+                        },
                     )
-                    page = await context.new_page()
-                    await page.add_init_script(
-                        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-                    )
+                    # Применяем stealth-патчи: скрытие navigator.webdriver,
+                    # эмуляция Chrome runtime, WebGL fingerprint и т.д.
+                    try:
+                        from playwright_stealth import Stealth
 
-                    # 1. Открываем страницу
+                        await Stealth(navigator_user_agent_override=UA).apply_stealth_async(context)
+                        log_step("stealth", "playwright-stealth применён")
+                    except Exception as exc:  # noqa: BLE001
+                        log_step("stealth", f"не удалось применить: {exc}")
+
+                    page = await context.new_page()
+
+                    # 1. Открываем страницу.
+                    # Стратегия двухступенчатая: сначала ждём
+                    # domcontentloaded (быстро, гарантированно), потом
+                    # пытаемся дойти до networkidle, но не падаем если он
+                    # не достигнут (крупные SPA-сайты типа Wildberries
+                    # никогда не отдают networkidle из-за бесконечного
+                    # polling'а).
                     log_step("goto", url)
                     try:
-                        await page.goto(url, wait_until="networkidle",
-                                        timeout=_interact_timeout_ms() * 2)
+                        await page.goto(
+                            url, wait_until="domcontentloaded",
+                            timeout=_interact_timeout_ms() * 2,
+                        )
+                    except PWTimeoutError as exc:
+                        log_step("goto", f"domcontentloaded timeout: {exc}")
+
+                    # Пытаемся дождаться полной отрисовки.
+                    try:
+                        await page.wait_for_load_state(
+                            "networkidle", timeout=10_000
+                        )
+                        log_step("networkidle", "достигнут")
                     except PWTimeoutError:
-                        log_step("goto", "networkidle timeout — продолжаем")
-                    await page.wait_for_timeout(1500)
+                        log_step("networkidle", "не достигнут (SPA?) — продолжаем")
+
+                    # Опционально ждём появления конкретного селектора
+                    # (например ".price" или "h1"). Это лучшая страховка
+                    # против "пустого" SPA-shell'а.
+                    if wait_for_selector:
+                        try:
+                            await page.wait_for_selector(
+                                wait_for_selector, timeout=15_000,
+                            )
+                            log_step("wait_for_selector", f"'{wait_for_selector}' найден")
+                        except PWTimeoutError:
+                            log_step(
+                                "wait_for_selector",
+                                f"'{wait_for_selector}' не появился за 15с",
+                            )
+
+                    # Базовая пауза + дополнительная для упрямых сайтов.
+                    await page.wait_for_timeout(2000 + max(0, extra_wait_ms))
                     result.page_title_before = await page.title()
-                    log_step("page_loaded", f"title='{result.page_title_before}'")
+                    log_step(
+                        "page_loaded",
+                        f"title='{result.page_title_before}' html_len={len(await page.content())}",
+                    )
 
                     # 2. Подбираем селектор
                     sel, source, conf, element_text = await self._resolve_selector(

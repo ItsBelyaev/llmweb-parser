@@ -467,6 +467,8 @@ async def interact(req: InteractRequest):
         text_hint=req.text_hint,
         intent=req.intent,
         use_llm_fallback=req.use_llm_fallback,
+        wait_for_selector=req.wait_for_selector,
+        extra_wait_ms=req.extra_wait_ms,
     )
 
     record_id = await save_interaction_run(

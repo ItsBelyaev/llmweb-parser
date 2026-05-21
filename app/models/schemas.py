@@ -304,6 +304,8 @@ class InteractRequest(BaseModel):
     text_hint: Optional[str] = None
     intent: Optional[str] = None
     use_llm_fallback: bool = True
+    wait_for_selector: Optional[str] = None  # опциональный CSS для ожидания (SPA)
+    extra_wait_ms: int = 0                   # доп. задержка после загрузки
 
     @field_validator("url")
     @classmethod
