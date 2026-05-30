@@ -60,6 +60,7 @@ from app.scraper.cleaner import clean_html
 from app.scraper.fetcher import fetch_page
 from app.scraper.interactor import PageInteractor
 from app.toon.serializer import dump_domains
+from app.utils.source_detector import detect_source_from_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -78,7 +79,17 @@ async def parse_product(req: ParseRequest):
     очищает HTML и извлекает данные через LLM (LangChain).
     Результат сохраняется в SQLite.
     """
-    logger.info("📥 Запрос парсинга: source=%s url=%s", req.source, req.url)
+    # Если пользователь не указал явный регион (или поставил "auto") —
+    # определяем по доменной зоне URL. .ru/.рф и известные русские
+    # маркетплейсы → russian, всё остальное с валидным хостом →
+    # international, мусор без хоста → other.
+    effective_source = (
+        detect_source_from_url(req.url) if req.source == "auto" else req.source
+    )
+    logger.info(
+        "📥 Запрос парсинга: source=%s (req=%s) url=%s",
+        effective_source, req.source, req.url,
+    )
     await save_interaction("parse_request", req.url)
 
     status = "success"
@@ -104,7 +115,7 @@ async def parse_product(req: ParseRequest):
                 "LLM недоступен — добавьте HUGGINGFACE_API_KEY или OPENAI_API_KEY в .env"
             )
 
-        data = await _llm_parser.extract_product_data(cleaned_html, req.source)
+        data = await _llm_parser.extract_product_data(cleaned_html, effective_source)
         raw_response = data.pop("_raw", None)
 
         # 4. Валидация через Pydantic
@@ -128,7 +139,7 @@ async def parse_product(req: ParseRequest):
     # 5. Сохранение в БД
     record_id = await save_parse_result(
         url=req.url,
-        source=req.source,
+        source=effective_source,
         status=status,
         error=error_msg,
         title=product.title if product else None,
@@ -141,7 +152,7 @@ async def parse_product(req: ParseRequest):
     return ParseResponse(
         id=record_id,
         url=req.url,
-        source=req.source,
+        source=effective_source,
         status=status,
         error=error_msg,
         product=product,
@@ -476,9 +487,6 @@ async def interact(req: InteractRequest):
     result = await interactor.run(
         url=req.url,
         action=req.action,
-        selector=req.selector,
-        text_hint=req.text_hint,
-        intent=req.intent,
         use_llm_fallback=req.use_llm_fallback,
         wait_for_selector=req.wait_for_selector,
         extra_wait_ms=req.extra_wait_ms,

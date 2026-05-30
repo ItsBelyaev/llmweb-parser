@@ -311,9 +311,10 @@
         <div class="form-col">
           <label>Источник</label>
           <select id="sourceSelect">
+            <option value="auto" selected>Авто (по URL)</option>
             <option value="russian">Российский магазин</option>
             <option value="international">Зарубежный магазин</option>
-            <option value="other" selected>Другой</option>
+            <option value="other">Другой</option>
           </select>
         </div>
         <div>
@@ -452,15 +453,7 @@
         </div>
       </div>
 
-      <div class="form-row" id="actExtras" style="margin-top:8px">
-        <div class="form-col" id="actTextHintWrap" style="flex:1; display:none;">
-          <label>Текст для поиска (click_text)</label>
-          <input type="text" id="actTextHint" placeholder="например: В корзину" />
-        </div>
-        <div class="form-col" id="actSelectorWrap" style="flex:1; display:none;">
-          <label>CSS-селектор (custom_selector)</label>
-          <input type="text" id="actSelector" placeholder="например: button.add-to-cart" />
-        </div>
+      <div class="form-row" style="margin-top:8px">
         <div class="form-col" style="flex:1">
           <label>LLM-fallback</label>
           <select id="actLLM">
@@ -549,17 +542,13 @@
   }
 
   // ── показ доп. полей в зависимости от выбранного действия ──
-  document.getElementById('actAction').addEventListener('change', function() {
-    const a = this.value;
-    document.getElementById('actTextHintWrap').style.display = (a === 'click_text') ? '' : 'none';
-    document.getElementById('actSelectorWrap').style.display = (a === 'custom_selector') ? '' : 'none';
-  });
+  // Раньше здесь был обработчик, переключающий поля text_hint/selector
+  // в зависимости от выбранного action. Сейчас остались только
+  // add_to_cart / buy_now — переключать нечего.
 
   async function runInteract() {
     const url = document.getElementById('actUrl').value.trim();
     const action = document.getElementById('actAction').value;
-    const text_hint = document.getElementById('actTextHint').value.trim() || null;
-    const selector = document.getElementById('actSelector').value.trim() || null;
     const use_llm_fallback = document.getElementById('actLLM').value === 'true';
     const extra_wait_ms = parseInt(document.getElementById('actExtraWaitMs').value, 10) || 0;
     const wait_for_selector = document.getElementById('actWaitSelector').value.trim() || null;
@@ -576,7 +565,7 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          url, action, text_hint, selector, use_llm_fallback,
+          url, action, use_llm_fallback,
           extra_wait_ms, wait_for_selector,
         }),
       });

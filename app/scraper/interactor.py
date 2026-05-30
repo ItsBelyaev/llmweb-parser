@@ -134,9 +134,6 @@ class PageInteractor:
         url: str,
         action: str,
         *,
-        selector: Optional[str] = None,
-        text_hint: Optional[str] = None,
-        intent: Optional[str] = None,
         use_llm_fallback: bool = True,
         wait_for_selector: Optional[str] = None,
         extra_wait_ms: int = 0,
@@ -145,13 +142,11 @@ class PageInteractor:
 
         Args:
             url: страница на которой выполняем действие.
-            action: одно из {``add_to_cart``, ``buy_now``, ``click_text``,
-                ``custom_selector``}.
-            selector: для ``custom_selector`` — явный CSS-селектор.
-            text_hint: для ``click_text`` — какой текст искать.
-            intent: явное имя намерения для ``element_finder``;
-                по умолчанию вычисляется из ``action``.
+            action: ``add_to_cart`` или ``buy_now``.
             use_llm_fallback: если эвристика не уверена — спрашивать LLM.
+            wait_for_selector: дополнительный CSS, появления которого ждём
+                перед поиском кнопки (для медленных SPA).
+            extra_wait_ms: дополнительная задержка после загрузки страницы.
         """
         started = time.time()
         result = InteractionResult(status="error", url=url, action=action)
@@ -263,9 +258,6 @@ class PageInteractor:
                     sel, source, conf, element_text = await self._resolve_selector(
                         page=page,
                         action=action,
-                        explicit_selector=selector,
-                        text_hint=text_hint,
-                        intent=intent,
                         use_llm_fallback=use_llm_fallback,
                         log_step=log_step,
                     )
@@ -282,15 +274,8 @@ class PageInteractor:
                     # 3. Клик
                     log_step("click", f"selector='{sel}'")
                     try:
-                        if source == "text-match" and text_hint:
-                            # Selector вида text='...' это наш внутренний
-                            # маркер — кликаем через Playwright locator.
-                            await page.get_by_text(text_hint, exact=False).first.click(
-                                timeout=_interact_timeout_ms()
-                            )
-                        else:
-                            await page.wait_for_selector(sel, timeout=_interact_timeout_ms())
-                            await page.click(sel, timeout=_interact_timeout_ms())
+                        await page.wait_for_selector(sel, timeout=_interact_timeout_ms())
+                        await page.click(sel, timeout=_interact_timeout_ms())
                     except PWTimeoutError as exc:
                         result.status = "error"
                         result.error = f"timeout при клике: {exc}"
@@ -330,36 +315,17 @@ class PageInteractor:
         *,
         page: Page,
         action: str,
-        explicit_selector: Optional[str],
-        text_hint: Optional[str],
-        intent: Optional[str],
         use_llm_fallback: bool,
         log_step,
     ):
-        """Возвращает (selector, source, confidence, element_text) или Nones."""
+        """Возвращает (selector, source, confidence, element_text) или Nones.
 
-        # 1) Явный селектор — приоритет
-        if explicit_selector:
-            log_step("resolve", f"явный селектор: {explicit_selector}")
-            txt = await self._element_text_safe(page, explicit_selector)
-            return explicit_selector, "user", 100.0, txt
-
-        # 2) Поиск по тексту: Playwright встроенный get_by_text
-        if action == "click_text" and text_hint:
-            log_step("resolve", f"поиск по тексту: '{text_hint}'")
-            try:
-                locator = page.get_by_text(text_hint, exact=False).first
-                count = await locator.count()
-                if count > 0:
-                    # Превращаем locator в CSS-селектор не получится напрямую,
-                    # поэтому используем подход: кликаем по locator'у через
-                    # элемент-handle. Для логирования сохраняем текст-хинт.
-                    return f"text={text_hint!r}", "text-match", 95.0, text_hint
-            except Exception as exc:  # noqa: BLE001
-                log_step("resolve", f"get_by_text не сработал: {exc}")
-
-        # 3) Эвристика по HTML
-        intent_name = intent or _action_to_intent(action)
+        Стратегия:
+          1. Эвристический скоринг через ``element_finder``.
+          2. Если уверенность ниже порога — LLM-fallback (если разрешён).
+          3. Иначе — (None, None, None, None) и наверху status=not_found.
+        """
+        intent_name = _action_to_intent(action)
         if not intent_name:
             return None, None, None, None
 
@@ -439,7 +405,4 @@ def _action_to_intent(action: str) -> Optional[str]:
     return {
         "add_to_cart": "add_to_cart",
         "buy_now": "buy_now",
-        "open_product": "open_product",
-        "click_text": None,  # для click_text intent не нужен
-        "custom_selector": None,
     }.get(action)

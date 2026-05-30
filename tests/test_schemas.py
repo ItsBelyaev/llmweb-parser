@@ -51,12 +51,11 @@ def test_parse_request_url_stripped():
     assert req.url == "https://example.com/product"
 
 
-def test_parse_request_invalid_source_becomes_other():
-    """Неизвестный источник должен стать 'other'"""
-    # 'frobnicate' не входит ни в новые опции (russian/international/other),
-    # ни в legacy-список — должен превратиться в 'other'.
+def test_parse_request_invalid_source_becomes_auto():
+    """Неизвестный источник должен стать 'auto' — на бекенде
+    сработает detect_source_from_url, который сам определит регион."""
     req = ParseRequest(url="https://example.com/p", source="frobnicate")
-    assert req.source == "other"
+    assert req.source == "auto"
 
 
 def test_parse_request_url_too_long():

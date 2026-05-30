@@ -126,15 +126,26 @@ async def test_interact_error_returns_200_with_status(client):
 
 
 @pytest.mark.asyncio
-async def test_interact_custom_selector(client):
-    """action=custom_selector кладёт явный селектор в результат."""
+async def test_interact_removed_actions_rejected(client):
+    """Старые действия click_text/custom_selector/open_product должны давать 422."""
+    for legacy in ("click_text", "custom_selector", "open_product"):
+        r = await client.post(
+            "/api/interact",
+            json={"url": "https://shop.example.com/p/1", "action": legacy},
+        )
+        assert r.status_code == 422, f"action={legacy} should be rejected"
+
+
+@pytest.mark.asyncio
+async def test_interact_buy_now_accepted(client):
+    """action=buy_now всё ещё доступен (одно из двух разрешённых)."""
     fake_result = InteractionResult(
         status="success",
         url="https://shop.example.com/p/1",
-        action="custom_selector",
-        selector_used="#fancy-button",
-        selector_source="user",
-        selector_confidence=100.0,
+        action="buy_now",
+        selector_used=".btn-buy",
+        selector_source="heuristic",
+        selector_confidence=85.0,
     )
     with patch(
         "app.api.routes.PageInteractor.run",
@@ -142,15 +153,11 @@ async def test_interact_custom_selector(client):
     ):
         r = await client.post(
             "/api/interact",
-            json={
-                "url": "https://shop.example.com/p/1",
-                "action": "custom_selector",
-                "selector": "#fancy-button",
-            },
+            json={"url": "https://shop.example.com/p/1", "action": "buy_now"},
         )
     assert r.status_code == 200
-    assert r.json()["selector_used"] == "#fancy-button"
-    assert r.json()["selector_source"] == "user"
+    assert r.json()["status"] == "success"
+    assert r.json()["action"] == "buy_now"
 
 
 # ─── Шорткат /api/cart/add ───────────────────────────────────────────────────

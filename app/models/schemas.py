@@ -25,19 +25,22 @@ from datetime import datetime
 class ParseRequest(BaseModel):
     """Запрос на парсинг страницы товара.
 
-    По умолчанию ``source = "other"`` — сервис универсальный и работает
-    с любым e-commerce сайтом. Поле служит только подсказкой для LLM
-    о регионе/языке страницы; никаких специальных правил под конкретный
-    магазин в коде нет.
+    Поле ``source`` служит подсказкой для LLM о регионе/языке страницы;
+    никаких специальных правил под конкретный магазин в коде нет.
 
     Возможные значения:
-      * ``russian`` — российские магазины (Wildberries, Ozon, DNS и т.д.)
-      * ``international`` — зарубежные (Amazon, eBay, AliExpress)
-      * ``other`` — всё остальное (по умолчанию)
+      * ``auto`` (по умолчанию) — сервис сам определит регион по URL.
+        Это рекомендуемый вариант: для известных российских магазинов
+        (Wildberries, Ozon, ...) и доменов на ``.ru/.рф/.by/.kz``
+        автоматически выставляется ``russian``; для всего остального —
+        ``international`` или ``other``.
+      * ``russian`` — российские магазины (форсированно).
+      * ``international`` — зарубежные (форсированно).
+      * ``other`` — всё остальное (форсированно).
     """
 
     url: str
-    source: str = "other"
+    source: str = "auto"
     wait_for_selector: Optional[str] = None  # для медленных SPA
     extra_wait_ms: int = 0                   # доп. задержка после загрузки
 
@@ -56,17 +59,17 @@ class ParseRequest(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        # Группировка по регионам, а не по конкретному магазину: крупные
-        # российские маркетплейсы (WB, Ozon, Я.Маркет) активно блокируют
-        # парсеры, поэтому отдельные опции под них пользователя только
-        # путают. Вместо этого даём общий контекст для промпта.
-        allowed = {"russian", "international", "other"}
+        # Группировка по регионам, а не по конкретному магазину: код
+        # всё равно не делает магазин-специфичной логики. ``auto``
+        # означает "определить из URL на бекенде" — реальная подстановка
+        # происходит в routes.py через detect_source_from_url().
+        allowed = {"auto", "russian", "international", "other"}
         v = v.strip().lower()
         # Обратная совместимость со старыми значениями
         if v in {"wildberries", "ozon", "yandex_market", "mvideo", "dns"}:
             return "russian"
         if v not in allowed:
-            return "other"
+            return "auto"
         return v
 
 
@@ -316,13 +319,19 @@ class DomainMarkupList(BaseModel):
 
 
 class InteractRequest(BaseModel):
-    """Запрос на интерактивное действие со страницей."""
+    """Запрос на интерактивное действие со страницей.
+
+    Поддерживаются только две операции:
+      * ``add_to_cart`` — нажать «Добавить в корзину»
+      * ``buy_now``     — нажать «Купить сейчас»
+
+    Остальные сценарии (клик по тексту, по явному селектору, переход
+    в карточку товара) убраны как ненужные для практической демонстрации
+    на курсовой защите.
+    """
 
     url: str
-    action: str  # add_to_cart | buy_now | click_text | custom_selector | open_product
-    selector: Optional[str] = None
-    text_hint: Optional[str] = None
-    intent: Optional[str] = None
+    action: str  # add_to_cart | buy_now
     use_llm_fallback: bool = True
     wait_for_selector: Optional[str] = None  # опциональный CSS для ожидания (SPA)
     extra_wait_ms: int = 0                   # доп. задержка после загрузки
@@ -343,13 +352,7 @@ class InteractRequest(BaseModel):
     @classmethod
     def validate_action(cls, v: str) -> str:
         v = v.strip().lower()
-        allowed = {
-            "add_to_cart",
-            "buy_now",
-            "click_text",
-            "custom_selector",
-            "open_product",
-        }
+        allowed = {"add_to_cart", "buy_now"}
         if v not in allowed:
             raise ValueError(
                 f"action должен быть одним из {sorted(allowed)}"
