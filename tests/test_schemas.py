@@ -14,9 +14,22 @@ from app.models.schemas import ParseRequest, ProductData, InteractionCreate
 
 def test_parse_request_valid():
     """Корректный запрос должен проходить валидацию"""
-    req = ParseRequest(url="https://www.wildberries.ru/catalog/123/detail.aspx", source="wildberries")
+    req = ParseRequest(url="https://www.wildberries.ru/catalog/123/detail.aspx", source="russian")
     assert req.url.startswith("https://")
-    assert req.source == "wildberries"
+    assert req.source == "russian"
+
+
+def test_parse_request_legacy_source_normalised():
+    """Старые значения source (wildberries и т.д.) приводятся к 'russian'."""
+    for legacy in ("wildberries", "ozon", "yandex_market", "mvideo", "dns"):
+        req = ParseRequest(url="https://example.com/p/1", source=legacy)
+        assert req.source == "russian", (legacy, req.source)
+
+
+def test_parse_request_international_source():
+    """Допустимое значение 'international' проходит как есть."""
+    req = ParseRequest(url="https://amazon.com/p/1", source="international")
+    assert req.source == "international"
 
 
 def test_parse_request_url_must_have_scheme():
@@ -40,7 +53,9 @@ def test_parse_request_url_stripped():
 
 def test_parse_request_invalid_source_becomes_other():
     """Неизвестный источник должен стать 'other'"""
-    req = ParseRequest(url="https://example.com/p", source="amazon")
+    # 'frobnicate' не входит ни в новые опции (russian/international/other),
+    # ни в legacy-список — должен превратиться в 'other'.
+    req = ParseRequest(url="https://example.com/p", source="frobnicate")
     assert req.source == "other"
 
 

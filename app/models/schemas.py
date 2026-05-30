@@ -26,7 +26,14 @@ class ParseRequest(BaseModel):
     """Запрос на парсинг страницы товара.
 
     По умолчанию ``source = "other"`` — сервис универсальный и работает
-    с любым e-commerce сайтом, не только с маркетплейсами из списка.
+    с любым e-commerce сайтом. Поле служит только подсказкой для LLM
+    о регионе/языке страницы; никаких специальных правил под конкретный
+    магазин в коде нет.
+
+    Возможные значения:
+      * ``russian`` — российские магазины (Wildberries, Ozon, DNS и т.д.)
+      * ``international`` — зарубежные (Amazon, eBay, AliExpress)
+      * ``other`` — всё остальное (по умолчанию)
     """
 
     url: str
@@ -49,8 +56,15 @@ class ParseRequest(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        allowed = {"wildberries", "ozon", "yandex_market", "other"}
+        # Группировка по регионам, а не по конкретному магазину: крупные
+        # российские маркетплейсы (WB, Ozon, Я.Маркет) активно блокируют
+        # парсеры, поэтому отдельные опции под них пользователя только
+        # путают. Вместо этого даём общий контекст для промпта.
+        allowed = {"russian", "international", "other"}
         v = v.strip().lower()
+        # Обратная совместимость со старыми значениями
+        if v in {"wildberries", "ozon", "yandex_market", "mvideo", "dns"}:
+            return "russian"
         if v not in allowed:
             return "other"
         return v
