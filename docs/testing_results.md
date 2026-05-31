@@ -265,7 +265,7 @@ image_url = https://books.toscrape.com/media/cache/08/e9/08e94f3731d7d6b760dfbfb
 ```bash
 curl -X POST http://127.0.0.1:8000/api/parse \
      -H "Content-Type: application/json" \
-     -d '{"url":"https://www.wildberries.ru/catalog/192222089/detail.aspx","source":"wildberries"}'
+     -d '{"url":"https://www.wildberries.ru/catalog/192222089/detail.aspx","source":"russian"}'
 ```
 
 Результат:

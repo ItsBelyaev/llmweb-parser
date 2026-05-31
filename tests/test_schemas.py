@@ -14,22 +14,40 @@ from app.models.schemas import ParseRequest, ProductData, InteractionCreate
 
 def test_parse_request_valid():
     """Корректный запрос должен проходить валидацию"""
-    req = ParseRequest(url="https://www.wildberries.ru/catalog/123/detail.aspx", source="russian")
+    req = ParseRequest(url="https://www.example.ru/product/123", source="russian")
     assert req.url.startswith("https://")
     assert req.source == "russian"
 
 
-def test_parse_request_legacy_source_normalised():
-    """Старые значения source (wildberries и т.д.) приводятся к 'russian'."""
+def test_parse_request_legacy_marketplace_source_normalised():
+    """Старые маркетплейсные значения (wildberries и т.д.) → russian."""
     for legacy in ("wildberries", "ozon", "yandex_market", "mvideo", "dns"):
         req = ParseRequest(url="https://example.com/p/1", source=legacy)
         assert req.source == "russian", (legacy, req.source)
 
 
-def test_parse_request_international_source():
-    """Допустимое значение 'international' проходит как есть."""
+def test_parse_request_legacy_international_normalised():
+    """Старое значение 'international' нормализуется в новое 'foreign'."""
     req = ParseRequest(url="https://amazon.com/p/1", source="international")
-    assert req.source == "international"
+    assert req.source == "foreign"
+
+
+def test_parse_request_legacy_auto_normalised():
+    """Старое значение 'auto' (из эпохи автодетекта) → 'other'."""
+    req = ParseRequest(url="https://example.com/p/1", source="auto")
+    assert req.source == "other"
+
+
+def test_parse_request_foreign_source_accepted():
+    """Допустимое значение 'foreign' проходит как есть."""
+    req = ParseRequest(url="https://amazon.com/p/1", source="foreign")
+    assert req.source == "foreign"
+
+
+def test_parse_request_default_source_is_other():
+    """Если source не указан, используется 'other'."""
+    req = ParseRequest(url="https://example.com/p/1")
+    assert req.source == "other"
 
 
 def test_parse_request_url_must_have_scheme():
@@ -51,11 +69,10 @@ def test_parse_request_url_stripped():
     assert req.url == "https://example.com/product"
 
 
-def test_parse_request_invalid_source_becomes_auto():
-    """Неизвестный источник должен стать 'auto' — на бекенде
-    сработает detect_source_from_url, который сам определит регион."""
+def test_parse_request_invalid_source_becomes_other():
+    """Неизвестное значение source приводится к дефолту 'other'."""
     req = ParseRequest(url="https://example.com/p", source="frobnicate")
-    assert req.source == "auto"
+    assert req.source == "other"
 
 
 def test_parse_request_url_too_long():

@@ -25,22 +25,19 @@ from datetime import datetime
 class ParseRequest(BaseModel):
     """Запрос на парсинг страницы товара.
 
-    Поле ``source`` служит подсказкой для LLM о регионе/языке страницы;
-    никаких специальных правил под конкретный магазин в коде нет.
+    Поле ``source`` — нейтральная языковая категория сайта. Раньше
+    здесь были привязки к конкретным маркетплейсам (ozon / wildberries /
+    yandex_market), но из-за антибот-защиты эти селекторы перестали
+    работать, и привязка потеряла смысл. Сейчас используются языковые
+    категории как подсказка для промпта LLM:
 
-    Возможные значения:
-      * ``auto`` (по умолчанию) — сервис сам определит регион по URL.
-        Это рекомендуемый вариант: для известных российских магазинов
-        (Wildberries, Ozon, ...) и доменов на ``.ru/.рф/.by/.kz``
-        автоматически выставляется ``russian``; для всего остального —
-        ``international`` или ``other``.
-      * ``russian`` — российские магазины (форсированно).
-      * ``international`` — зарубежные (форсированно).
-      * ``other`` — всё остальное (форсированно).
+      * ``russian`` — русскоязычный сайт.
+      * ``foreign`` — иностранный / англоязычный сайт.
+      * ``other`` — всё остальное (значение по умолчанию).
     """
 
     url: str
-    source: str = "auto"
+    source: str = "other"
     wait_for_selector: Optional[str] = None  # для медленных SPA
     extra_wait_ms: int = 0                   # доп. задержка после загрузки
 
@@ -59,17 +56,23 @@ class ParseRequest(BaseModel):
     @field_validator("source")
     @classmethod
     def validate_source(cls, v: str) -> str:
-        # Группировка по регионам, а не по конкретному магазину: код
-        # всё равно не делает магазин-специфичной логики. ``auto``
-        # означает "определить из URL на бекенде" — реальная подстановка
-        # происходит в routes.py через detect_source_from_url().
-        allowed = {"auto", "russian", "international", "other"}
+        # Языковые категории вместо привязки к конкретному магазину:
+        # антибот-защита маркетплейсов сделала специфичные селекторы
+        # бесполезными, а LLM нужна только подсказка о языке страницы.
+        allowed = {"russian", "foreign", "other"}
         v = v.strip().lower()
-        # Обратная совместимость со старыми значениями
+        # Обратная совместимость со старыми значениями: бывшие
+        # маркетплейсные опции → russian, бывшее international → foreign.
         if v in {"wildberries", "ozon", "yandex_market", "mvideo", "dns"}:
             return "russian"
+        if v == "international":
+            return "foreign"
+        if v == "auto":
+            # Раньше "auto" триггерил автодетект по URL. Сейчас
+            # автодетект убран; дефолт — "other".
+            return "other"
         if v not in allowed:
-            return "auto"
+            return "other"
         return v
 
 
